@@ -95,7 +95,7 @@ func TestAuthHandler_Register(t *testing.T) {
 			name: "short password",
 			requestBody: request.RegisterRequest{
 				Username: "testuser",
-				Password: "123", // Less than min length
+				Password: "123",
 			},
 			serviceError:   nil,
 			wantStatusCode: http.StatusBadRequest,
@@ -264,7 +264,7 @@ func TestAuthHandler_Login(t *testing.T) {
 						t.Errorf("token = %v, want %v", token, tt.serviceToken)
 					}
 
-					userID, ok := loginResp["user_id"].(float64) // JSON numbers are float64
+					userID, ok := loginResp["user_id"].(float64)
 					if !ok {
 						t.Error("user_id is not a number")
 					} else if uint(userID) != tt.serviceUserID {

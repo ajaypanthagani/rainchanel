@@ -59,7 +59,6 @@ func validateWASMModuleAndGetFunction(wasmBytes []byte, functionName string) (ap
 
 	userExportedFunctions := filterUserExportedFunctions(exportedFunctionNames)
 
-	// Check if the requested function is in the explicitly exported functions
 	found := false
 	for _, name := range userExportedFunctions {
 		if name == functionName {
@@ -88,7 +87,6 @@ func validateWASMModuleAndGetFunction(wasmBytes []byte, functionName string) (ap
 	}
 	defer module.Close(ctx)
 
-	// Check if function is exported in the WASM binary
 	exportedFunc := module.ExportedFunction(functionName)
 	if exportedFunc == nil {
 		return nil, userExportedFunctions, fmt.Errorf("%w: function '%s' not accessible", ErrFunctionNotExported, functionName)
@@ -208,7 +206,7 @@ func readULEB128(data []byte) (uint64, int) {
 		}
 		shift += 7
 		if shift >= 64 {
-			return 0, 0 // Overflow
+			return 0, 0
 		}
 	}
 
@@ -355,7 +353,7 @@ func validateArgType(arg interface{}, expectedType api.ValueType) error {
 			_, err := v.Int64()
 			return err
 		case string:
-			// Try to parse as number
+
 			var num json.Number
 			if err := json.Unmarshal([]byte(`"`+v+`"`), &num); err == nil {
 				_, err := num.Int64()

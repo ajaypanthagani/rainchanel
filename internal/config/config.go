@@ -13,6 +13,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
+	Task     TaskConfig     `yaml:"task"`
 }
 
 type ServerConfig struct {
@@ -29,6 +30,12 @@ type DatabaseConfig struct {
 
 type JWTConfig struct {
 	Secret string `yaml:"secret"`
+}
+
+type TaskConfig struct {
+	TimeoutSeconds            int `yaml:"timeout_seconds"`
+	MaxRetries                int `yaml:"max_retries"`
+	StaleCheckIntervalSeconds int `yaml:"stale_check_interval_seconds"`
 }
 
 var (
@@ -50,6 +57,11 @@ func Load() error {
 		},
 		JWT: JWTConfig{
 			Secret: "your-secret-key-change-in-production",
+		},
+		Task: TaskConfig{
+			TimeoutSeconds:            300,
+			MaxRetries:                3,
+			StaleCheckIntervalSeconds: 30,
 		},
 	}
 
@@ -103,5 +115,21 @@ func loadFromEnv() {
 	}
 	if database := os.Getenv("DB_NAME"); database != "" {
 		App.Database.Database = database
+	}
+
+	if timeoutStr := os.Getenv("TASK_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
+			App.Task.TimeoutSeconds = timeout
+		}
+	}
+	if maxRetriesStr := os.Getenv("TASK_MAX_RETRIES"); maxRetriesStr != "" {
+		if maxRetries, err := strconv.Atoi(maxRetriesStr); err == nil {
+			App.Task.MaxRetries = maxRetries
+		}
+	}
+	if staleCheckStr := os.Getenv("STALE_CHECK_INTERVAL_SECONDS"); staleCheckStr != "" {
+		if staleCheck, err := strconv.Atoi(staleCheckStr); err == nil {
+			App.Task.StaleCheckIntervalSeconds = staleCheck
+		}
 	}
 }

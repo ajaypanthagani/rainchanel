@@ -17,10 +17,12 @@ import (
 )
 
 type MockTaskService struct {
-	PublishTaskFunc  func(task dto.Task, createdBy uint) (uint, error)
-	ConsumeTaskFunc  func() (*dto.Task, error)
-	PublishResultFunc func(taskID uint, createdBy uint, processedBy uint, result string) error
-	ConsumeResultFunc  func(userID uint) (*dto.Result, error)
+	PublishTaskFunc       func(task dto.Task, createdBy uint) (uint, error)
+	ConsumeTaskFunc       func() (*dto.Task, error)
+	PublishResultFunc     func(taskID uint, createdBy uint, processedBy uint, result string) error
+	PublishFailureFunc    func(taskID uint, createdBy uint, processedBy uint, errorMsg string) error
+	ConsumeResultFunc     func(userID uint) (*dto.Result, error)
+	ReclaimStaleTasksFunc func() (int, error)
 }
 
 func (m *MockTaskService) PublishTask(task dto.Task, createdBy uint) (uint, error) {
@@ -49,6 +51,20 @@ func (m *MockTaskService) ConsumeResult(userID uint) (*dto.Result, error) {
 		return m.ConsumeResultFunc(userID)
 	}
 	return nil, nil
+}
+
+func (m *MockTaskService) PublishFailure(taskID uint, createdBy uint, processedBy uint, errorMsg string) error {
+	if m.PublishFailureFunc != nil {
+		return m.PublishFailureFunc(taskID, createdBy, processedBy, errorMsg)
+	}
+	return nil
+}
+
+func (m *MockTaskService) ReclaimStaleTasks() (int, error) {
+	if m.ReclaimStaleTasksFunc != nil {
+		return m.ReclaimStaleTasksFunc()
+	}
+	return 0, nil
 }
 
 func TestNewTaskHandler(t *testing.T) {
@@ -81,7 +97,7 @@ func TestTaskHandler_PublishTask(t *testing.T) {
 				},
 			},
 			serviceError:   nil,
-			serviceTaskID: 123,
+			serviceTaskID:  123,
 			wantStatusCode: http.StatusOK,
 		},
 		{
@@ -415,4 +431,122 @@ func TestTaskHandler_PublishResult_InvalidJSON(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestTaskHandler_PublishFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		requestBody    any
+		serviceError   error
+		wantStatusCode int
+		setupAuth      func(*gin.Context)
+	}{
+		{
+			name: "success",
+			requestBody: request.PublishFailureRequest{
+				TaskID:    123,
+				CreatedBy: 1,
+				ErrorMsg:  "execution failed",
+			},
+			serviceError:   nil,
+			wantStatusCode: http.StatusOK,
+			setupAuth: func(c *gin.Context) {
+				c.Set("user_id", uint(2))
+				c.Set("username", "worker")
+			},
+		},
+		{
+			name: "task not found",
+			requestBody: request.PublishFailureRequest{
+				TaskID:    999,
+				CreatedBy: 1,
+				ErrorMsg:  "execution failed",
+			},
+			serviceError:   service.ErrTaskNotFound,
+			wantStatusCode: http.StatusNotFound,
+			setupAuth: func(c *gin.Context) {
+				c.Set("user_id", uint(2))
+				c.Set("username", "worker")
+			},
+		},
+		{
+			name: "invalid created_by",
+			requestBody: request.PublishFailureRequest{
+				TaskID:    123,
+				CreatedBy: 2,
+				ErrorMsg:  "execution failed",
+			},
+			serviceError:   service.ErrInvalidCreatedBy,
+			wantStatusCode: http.StatusForbidden,
+			setupAuth: func(c *gin.Context) {
+				c.Set("user_id", uint(2))
+				c.Set("username", "worker")
+			},
+		},
+		{
+			name: "unauthorized - no user_id",
+			requestBody: request.PublishFailureRequest{
+				TaskID:    123,
+				CreatedBy: 1,
+				ErrorMsg:  "execution failed",
+			},
+			wantStatusCode: http.StatusUnauthorized,
+			setupAuth: func(c *gin.Context) {
+
+			},
+		},
+		{
+			name:           "invalid JSON",
+			requestBody:    "invalid json",
+			wantStatusCode: http.StatusBadRequest,
+			setupAuth: func(c *gin.Context) {
+				c.Set("user_id", uint(2))
+				c.Set("username", "worker")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := &MockTaskService{
+				PublishFailureFunc: func(taskID uint, createdBy uint, processedBy uint, errorMsg string) error {
+					return tt.serviceError
+				},
+			}
+			handler := NewTaskHandler(mockService)
+
+			var reqBody []byte
+			var err error
+			if tt.name == "invalid JSON" {
+				reqBody = []byte("invalid json")
+			} else {
+				reqBody, err = json.Marshal(tt.requestBody)
+				assert.NoError(t, err)
+			}
+
+			router := gin.New()
+			router.POST("/failures", func(c *gin.Context) {
+				tt.setupAuth(c)
+				handler.PublishFailure(c)
+			})
+
+			req, _ := http.NewRequest("POST", "/failures", bytes.NewBuffer(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantStatusCode, w.Code)
+
+			if tt.wantStatusCode == http.StatusOK {
+				var resp response.Response
+				err := json.Unmarshal(w.Body.Bytes(), &resp)
+				assert.NoError(t, err)
+				assert.Nil(t, resp.Error)
+				assert.NotNil(t, resp.Data)
+			}
+		})
+	}
 }

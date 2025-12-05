@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"rainchanel.com/internal/api/handler"
 	"rainchanel.com/internal/config"
 	"rainchanel.com/internal/database"
@@ -18,6 +19,17 @@ import (
 )
 
 func startServer() {
+	// Initialize logrus
+	if os.Getenv("LOG_FORMAT") == "json" {
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+	} else {
+		logrus.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp: true,
+		})
+	}
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.InfoLevel)
+
 	if err := config.Load(); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -32,12 +44,21 @@ func startServer() {
 
 	taskHandler := handler.NewTaskHandler(taskService)
 	authHandler := handler.NewAuthHandler(authService)
+	metricsHandler := handler.NewMetricsHandler()
+	healthHandler := handler.NewHealthHandler()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	staleTaskService := service.NewStaleTaskService(taskService)
+	go staleTaskService.Start(ctx)
 
 	r := gin.Default()
 
 	r.GET("/ping", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
+	r.GET("/health", healthHandler.GetHealth)
+	r.GET("/metrics", metricsHandler.GetMetrics)
 
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
@@ -48,6 +69,7 @@ func startServer() {
 		protected.POST("/tasks", taskHandler.PublishTask)
 		protected.GET("/tasks", taskHandler.ConsumeTask)
 		protected.POST("/results", taskHandler.PublishResult)
+		protected.POST("/failures", taskHandler.PublishFailure)
 		protected.GET("/results", taskHandler.ConsumeResult)
 	}
 
@@ -70,10 +92,12 @@ func startServer() {
 
 	fmt.Println("Shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 

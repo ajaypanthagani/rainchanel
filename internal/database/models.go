@@ -36,9 +36,11 @@ const (
 type TaskAudit struct {
 	ID          uint       `gorm:"type:bigint unsigned;primarykey;autoIncrement;not null" json:"id"`
 	TaskID      uint       `gorm:"type:bigint unsigned;not null;uniqueIndex" json:"task_id"`
-	Status      TaskStatus `gorm:"type:varchar(50);default:'pending';not null;index" json:"status"`
+	Status      TaskStatus `gorm:"type:varchar(50);default:'pending';not null;index:idx_status_published" json:"status"`
 	ProcessedBy *uint      `gorm:"type:bigint unsigned;index:idx_task_processed_by" json:"processed_by,omitempty"`
-	PublishedAt time.Time  `gorm:"type:datetime;not null" json:"published_at"`
+	RetryCount  int        `gorm:"type:int;default:0;not null" json:"retry_count"`
+	ErrorMsg    string     `gorm:"type:text" json:"error_msg,omitempty"`
+	PublishedAt time.Time  `gorm:"type:datetime;not null;index:idx_status_published" json:"published_at"`
 	ConsumedAt  *time.Time `gorm:"type:datetime" json:"consumed_at,omitempty"`
 	CompletedAt *time.Time `gorm:"type:datetime" json:"completed_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -54,11 +56,11 @@ func (TaskAudit) TableName() string {
 
 type Result struct {
 	ID          uint      `gorm:"type:bigint unsigned;primarykey;autoIncrement;not null" json:"id"`
-	TaskID      uint      `gorm:"type:bigint unsigned;not null;index" json:"task_id"`
-	CreatedBy   uint      `gorm:"type:bigint unsigned;not null;index" json:"created_by"`
+	TaskID      uint      `gorm:"type:bigint unsigned;not null;index:idx_task_id" json:"task_id"`
+	CreatedBy   uint      `gorm:"type:bigint unsigned;not null;index:idx_created_by_consumed" json:"created_by"`
 	ProcessedBy uint      `gorm:"type:bigint unsigned;not null;index" json:"processed_by"`
 	Result      string    `gorm:"type:text;not null" json:"result"`
-	Consumed    bool      `gorm:"type:boolean;default:false;not null;index" json:"consumed"`
+	Consumed    bool      `gorm:"type:boolean;default:false;not null;index:idx_created_by_consumed" json:"consumed"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 

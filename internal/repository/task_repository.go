@@ -19,10 +19,16 @@ func NewTaskRepository() TaskRepository {
 }
 
 func (r *taskRepository) CreateTask(task *database.Task) error {
+	if database.DB == nil {
+		return errors.New("database not initialized")
+	}
 	return database.DB.Create(task).Error
 }
 
 func (r *taskRepository) FindTaskByID(taskID uint) (*database.Task, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var task database.Task
 	err := database.DB.Where("id = ?", taskID).First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -47,8 +47,8 @@ func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 	})
 
 	testCases := []struct {
-		name        string
-		authHeader  string
+		name       string
+		authHeader string
 	}{
 		{
 			name:       "no Bearer prefix",
@@ -91,8 +91,8 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	})
 
 	testCases := []struct {
-		name       string
-		token      string
+		name  string
+		token string
 	}{
 		{
 			name:  "invalid token format",
@@ -163,7 +163,7 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 
 	var response map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err == nil {
-		if response["user_id"] != float64(userID) { // JSON numbers are float64
+		if response["user_id"] != float64(userID) {
 			t.Errorf("Expected user_id %d in response, got %v", userID, response["user_id"])
 		}
 		if response["username"] != username {
@@ -204,4 +204,3 @@ func TestAuthMiddleware_ContextValues(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
-

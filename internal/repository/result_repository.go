@@ -23,10 +23,16 @@ func NewResultRepository() ResultRepository {
 }
 
 func (r *resultRepository) CreateResult(result *database.Result) error {
+	if database.DB == nil {
+		return errors.New("database not initialized")
+	}
 	return database.DB.Create(result).Error
 }
 
 func (r *resultRepository) FindResultByTaskID(taskID uint) (*database.Result, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var result database.Result
 	err := database.DB.Where("task_id = ?", taskID).First(&result).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -39,6 +45,9 @@ func (r *resultRepository) FindResultByTaskID(taskID uint) (*database.Result, er
 }
 
 func (r *resultRepository) FindResultsByUserID(userID uint) ([]database.Result, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var results []database.Result
 	err := database.DB.Where("created_by = ?", userID).Order("created_at DESC").Find(&results).Error
 	if err != nil {
@@ -48,6 +57,9 @@ func (r *resultRepository) FindResultsByUserID(userID uint) ([]database.Result, 
 }
 
 func (r *resultRepository) FindResultByID(resultID uint) (*database.Result, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var result database.Result
 	err := database.DB.Where("id = ?", resultID).First(&result).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -60,6 +72,9 @@ func (r *resultRepository) FindResultByID(resultID uint) (*database.Result, erro
 }
 
 func (r *resultRepository) FindOldestUnconsumedResultByUserID(userID uint) (*database.Result, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
 	var result database.Result
 	err := database.DB.Where("created_by = ? AND consumed = ?", userID, false).
 		Order("created_at ASC").
@@ -74,8 +89,10 @@ func (r *resultRepository) FindOldestUnconsumedResultByUserID(userID uint) (*dat
 }
 
 func (r *resultRepository) MarkResultAsConsumed(resultID uint) error {
+	if database.DB == nil {
+		return errors.New("database not initialized")
+	}
 	return database.DB.Model(&database.Result{}).
 		Where("id = ?", resultID).
 		Update("consumed", true).Error
 }
-

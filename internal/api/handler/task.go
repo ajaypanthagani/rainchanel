@@ -15,6 +15,7 @@ type TaskHandler interface {
 	PublishTask(*gin.Context)
 	ConsumeTask(*gin.Context)
 	PublishResult(*gin.Context)
+	PublishFailure(*gin.Context)
 	ConsumeResult(*gin.Context)
 }
 
@@ -175,6 +176,73 @@ func (h *taskHandler) PublishResult(ctx *gin.Context) {
 	ctx.JSON(200, response.Response{
 		Data: response.PublishResultResponse{
 			Message: "Result published successfully",
+		},
+	})
+}
+
+func (h *taskHandler) PublishFailure(ctx *gin.Context) {
+	var publishFailureRequest request.PublishFailureRequest
+
+	if err := ctx.ShouldBindJSON(&publishFailureRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, response.Response{
+			Error: &response.Error{
+				Code:    http.StatusBadRequest,
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	processedBy, exists := ctx.Get("user_id")
+	if !exists {
+		ctx.JSON(http.StatusUnauthorized, response.Response{
+			Error: &response.Error{
+				Code:    http.StatusUnauthorized,
+				Message: "User not authenticated",
+			},
+		})
+		return
+	}
+
+	err := h.taskService.PublishFailure(
+		publishFailureRequest.TaskID,
+		publishFailureRequest.CreatedBy,
+		processedBy.(uint),
+		publishFailureRequest.ErrorMsg,
+	)
+
+	if err != nil {
+		if errors.Is(err, service.ErrTaskNotFound) {
+			ctx.JSON(http.StatusNotFound, response.Response{
+				Error: &response.Error{
+					Code:    http.StatusNotFound,
+					Message: "Task not found",
+				},
+			})
+			return
+		}
+		if errors.Is(err, service.ErrInvalidCreatedBy) {
+			ctx.JSON(http.StatusForbidden, response.Response{
+				Error: &response.Error{
+					Code:    http.StatusForbidden,
+					Message: "Invalid created_by - does not match task record",
+				},
+			})
+			return
+		}
+
+		ctx.JSON(500, response.Response{
+			Error: &response.Error{
+				Code:    http.StatusInternalServerError,
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	ctx.JSON(200, response.Response{
+		Data: response.PublishResultResponse{
+			Message: "Failure recorded, task will be retried if retries available",
 		},
 	})
 }

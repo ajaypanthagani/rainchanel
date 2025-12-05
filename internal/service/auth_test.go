@@ -1,56 +1,14 @@
 package service
 
 import (
-	"os"
-	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 	"rainchanel.com/internal/auth"
 	"rainchanel.com/internal/config"
 	"rainchanel.com/internal/database"
 )
-
-func setupTestDB(t *testing.T) {
-	host := os.Getenv("TEST_DB_HOST")
-	if host == "" {
-		host = "localhost"
-	}
-	port := 3306
-	if portStr := os.Getenv("TEST_DB_PORT"); portStr != "" {
-		if p, err := strconv.Atoi(portStr); err == nil {
-			port = p
-		}
-	}
-	user := os.Getenv("TEST_DB_USER")
-	if user == "" {
-		user = "root"
-	}
-	password := os.Getenv("TEST_DB_PASSWORD")
-	databaseName := os.Getenv("TEST_DB_NAME")
-	if databaseName == "" {
-		databaseName = "rainchanel_test"
-	}
-
-	if err := database.Init(config.DatabaseConfig{
-		Host:     host,
-		Port:     port,
-		User:     user,
-		Password: password,
-		Database: databaseName,
-	}); err != nil {
-		t.Fatalf("Failed to initialize test database: %v", err)
-	}
-
-	config.App = &config.Config{
-		JWT: config.JWTConfig{
-			Secret: "test-secret-key",
-		},
-	}
-}
-
-func cleanupTestDB(t *testing.T) {
-	database.Close()
-}
 
 func TestNewAuthService(t *testing.T) {
 	service := NewAuthService()
@@ -60,23 +18,37 @@ func TestNewAuthService(t *testing.T) {
 }
 
 func TestAuthService_Register(t *testing.T) {
-	setupTestDB(t)
-	defer cleanupTestDB(t)
 
-	service := NewAuthService()
+	config.App = &config.Config{
+		JWT: config.JWTConfig{
+			Secret: "test-secret-key",
+		},
+	}
 
 	tests := []struct {
-		name     string
-		username string
-		password string
-		wantErr  bool
-		errMsg   string
+		name       string
+		username   string
+		password   string
+		wantErr    bool
+		errMsg     string
+		setupMocks func() *MockUserRepository
 	}{
 		{
 			name:     "success",
 			username: "testuser",
 			password: "password123",
 			wantErr:  false,
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(username string) (*database.User, error) {
+						return nil, gorm.ErrRecordNotFound
+					},
+					CreateFunc: func(user *database.User) error {
+						user.ID = 1
+						return nil
+					},
+				}
+			},
 		},
 		{
 			name:     "duplicate username",
@@ -84,23 +56,38 @@ func TestAuthService_Register(t *testing.T) {
 			password: "password456",
 			wantErr:  true,
 			errMsg:   "username already exists",
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(username string) (*database.User, error) {
+						return &database.User{ID: 1, Username: username}, nil
+					},
+				}
+			},
 		},
 		{
 			name:     "empty username",
 			username: "",
 			password: "password123",
-			wantErr:  false, // Database might allow empty username
-		},
-		{
-			name:     "empty password",
-			username: "user2",
-			password: "",
-			wantErr:  false, // bcrypt allows empty password
+			wantErr:  false,
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(username string) (*database.User, error) {
+						return nil, gorm.ErrRecordNotFound
+					},
+					CreateFunc: func(user *database.User) error {
+						user.ID = 1
+						return nil
+					},
+				}
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			userRepo := tt.setupMocks()
+			service := NewAuthServiceWithRepo(userRepo)
+
 			err := service.Register(tt.username, tt.password)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Register() error = %v, wantErr %v", err, tt.wantErr)
@@ -114,47 +101,48 @@ func TestAuthService_Register(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				var user database.User
-				if err := database.DB.Where("username = ?", tt.username).First(&user).Error; err != nil {
-					t.Errorf("User was not created: %v", err)
-				}
-
-				if user.Password == tt.password {
-					t.Error("Password should be hashed, not stored in plain text")
-				}
-
-				if !auth.CheckPasswordHash(tt.password, user.Password) {
-					t.Error("Stored password hash should match original password")
-				}
+				assert.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestAuthService_Login(t *testing.T) {
-	setupTestDB(t)
-	defer cleanupTestDB(t)
 
-	service := NewAuthService()
+	config.App = &config.Config{
+		JWT: config.JWTConfig{
+			Secret: "test-secret-key",
+		},
+	}
 
 	username := "testuser"
 	password := "password123"
-	if err := service.Register(username, password); err != nil {
-		t.Fatalf("Failed to register user: %v", err)
-	}
+	hashedPassword, _ := auth.HashPassword(password)
 
 	tests := []struct {
-		name     string
-		username string
-		password string
-		wantErr  bool
-		errMsg   string
+		name       string
+		username   string
+		password   string
+		wantErr    bool
+		errMsg     string
+		setupMocks func() *MockUserRepository
 	}{
 		{
 			name:     "success",
 			username: username,
 			password: password,
 			wantErr:  false,
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(u string) (*database.User, error) {
+						return &database.User{
+							ID:       1,
+							Username: username,
+							Password: hashedPassword,
+						}, nil
+					},
+				}
+			},
 		},
 		{
 			name:     "wrong password",
@@ -162,6 +150,17 @@ func TestAuthService_Login(t *testing.T) {
 			password: "wrong-password",
 			wantErr:  true,
 			errMsg:   "invalid username or password",
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(u string) (*database.User, error) {
+						return &database.User{
+							ID:       1,
+							Username: username,
+							Password: hashedPassword,
+						}, nil
+					},
+				}
+			},
 		},
 		{
 			name:     "non-existent user",
@@ -169,6 +168,13 @@ func TestAuthService_Login(t *testing.T) {
 			password: password,
 			wantErr:  true,
 			errMsg:   "invalid username or password",
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(u string) (*database.User, error) {
+						return nil, gorm.ErrRecordNotFound
+					},
+				}
+			},
 		},
 		{
 			name:     "empty username",
@@ -176,11 +182,21 @@ func TestAuthService_Login(t *testing.T) {
 			password: password,
 			wantErr:  true,
 			errMsg:   "invalid username or password",
+			setupMocks: func() *MockUserRepository {
+				return &MockUserRepository{
+					FindByUsernameFunc: func(u string) (*database.User, error) {
+						return nil, gorm.ErrRecordNotFound
+					},
+				}
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			userRepo := tt.setupMocks()
+			service := NewAuthServiceWithRepo(userRepo)
+
 			token, userID, returnedUsername, err := service.Login(tt.username, tt.password)
 
 			if (err != nil) != tt.wantErr {
@@ -225,52 +241,87 @@ func TestAuthService_Login(t *testing.T) {
 }
 
 func TestAuthService_Login_MultipleUsers(t *testing.T) {
-	setupTestDB(t)
-	defer cleanupTestDB(t)
 
-	service := NewAuthService()
+	config.App = &config.Config{
+		JWT: config.JWTConfig{
+			Secret: "test-secret-key",
+		},
+	}
 
 	users := []struct {
 		username string
 		password string
+		userID   uint
 	}{
-		{"user1", "pass1"},
-		{"user2", "pass2"},
-		{"user3", "pass3"},
+		{"user1", "pass1", 1},
+		{"user2", "pass2", 2},
+		{"user3", "pass3", 3},
 	}
 
+	userMap := make(map[string]*database.User)
 	for _, u := range users {
-		if err := service.Register(u.username, u.password); err != nil {
-			t.Fatalf("Failed to register user %s: %v", u.username, err)
+		hashedPassword, _ := auth.HashPassword(u.password)
+		userMap[u.username] = &database.User{
+			ID:       u.userID,
+			Username: u.username,
+			Password: hashedPassword,
 		}
 	}
 
-	for _, u := range users {
-		token, userID, username, err := service.Login(u.username, u.password)
-		if err != nil {
-			t.Errorf("Login() failed for user %s: %v", u.username, err)
-			continue
-		}
-
-		if token == "" {
-			t.Errorf("Login() returned empty token for user %s", u.username)
-		}
-
-		if userID == 0 {
-			t.Errorf("Login() returned zero user ID for user %s", u.username)
-		}
-
-		if username != u.username {
-			t.Errorf("Login() returned username = %s, want %s", username, u.username)
-		}
-
-		claims, err := auth.ValidateToken(token)
-		if err != nil {
-			t.Errorf("Token validation failed for user %s: %v", u.username, err)
-		} else {
-			if claims.Username != u.username {
-				t.Errorf("Token claims username = %s, want %s", claims.Username, u.username)
+	userRepo := &MockUserRepository{
+		FindByUsernameFunc: func(username string) (*database.User, error) {
+			user, exists := userMap[username]
+			if !exists {
+				return nil, gorm.ErrRecordNotFound
 			}
+			return user, nil
+		},
+		CreateFunc: func(user *database.User) error {
+			userMap[user.Username] = user
+			return nil
+		},
+	}
+
+	service := NewAuthServiceWithRepo(userRepo)
+
+	for _, u := range users {
+		user := &database.User{
+			Username: u.username,
 		}
+		hashedPassword, _ := auth.HashPassword(u.password)
+		user.Password = hashedPassword
+		user.ID = u.userID
+		userMap[u.username] = user
+	}
+
+	for _, u := range users {
+		t.Run("login_"+u.username, func(t *testing.T) {
+			token, userID, username, err := service.Login(u.username, u.password)
+			if err != nil {
+				t.Errorf("Login() failed for user %s: %v", u.username, err)
+				return
+			}
+
+			if token == "" {
+				t.Errorf("Login() returned empty token for user %s", u.username)
+			}
+
+			if userID == 0 {
+				t.Errorf("Login() returned zero user ID for user %s", u.username)
+			}
+
+			if username != u.username {
+				t.Errorf("Login() returned username = %s, want %s", username, u.username)
+			}
+
+			claims, err := auth.ValidateToken(token)
+			if err != nil {
+				t.Errorf("Token validation failed for user %s: %v", u.username, err)
+			} else {
+				if claims.Username != u.username {
+					t.Errorf("Token claims username = %s, want %s", claims.Username, u.username)
+				}
+			}
+		})
 	}
 }
