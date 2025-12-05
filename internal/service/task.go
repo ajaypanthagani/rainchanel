@@ -11,6 +11,7 @@ import (
 	"rainchanel.com/internal/database"
 	"rainchanel.com/internal/dto"
 	"rainchanel.com/internal/repository"
+	"rainchanel.com/internal/validation"
 )
 
 var ErrNoTasksAvailable = errors.New("no tasks available")
@@ -25,9 +26,9 @@ type TaskService interface {
 }
 
 type taskService struct {
-	taskRepo    repository.TaskRepository
-	auditRepo   repository.TaskAuditRepository
-	resultRepo  repository.ResultRepository
+	taskRepo   repository.TaskRepository
+	auditRepo  repository.TaskAuditRepository
+	resultRepo repository.ResultRepository
 }
 
 func NewTaskService() TaskService {
@@ -39,6 +40,11 @@ func NewTaskService() TaskService {
 }
 
 func (s *taskService) PublishTask(task dto.Task, createdBy uint) (uint, error) {
+	// Validate the WASM task before creating it
+	if err := validation.ValidateTask(task.WasmModule, task.Func, task.Args); err != nil {
+		return 0, fmt.Errorf("task validation failed: %w", err)
+	}
+
 	argsJSON, err := json.Marshal(task.Args)
 	if err != nil {
 		return 0, fmt.Errorf("failed to marshal task args: %w", err)
