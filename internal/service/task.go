@@ -73,8 +73,6 @@ func (s *taskService) PublishTask(task dto.Task, createdBy uint) (uint, error) {
 	}
 
 	taskID := dbTask.ID
-	task.ID = taskID
-	task.CreatedBy = createdBy
 
 	audit := &database.TaskAudit{
 		TaskID:      taskID,
