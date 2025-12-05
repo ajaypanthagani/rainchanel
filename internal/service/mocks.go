@@ -55,6 +55,15 @@ type MockTaskAuditRepository struct {
 	ReclaimStaleTaskFunc         func(taskID uint, errorMsg string) error
 	UpdateTaskFailedFunc         func(taskID uint, errorMsg string) error
 	GetTaskStatisticsFunc        func() (map[string]int64, error)
+	GetEnhancedStatisticsFunc    func() (map[string]interface{}, error)
+	FindTasksWithPaginationFunc  func(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error)
+	GetRecentActivityFunc        func(hours int) (map[string]int64, error)
+	GetErrorBreakdownFunc        func(limit int) ([]map[string]interface{}, error)
+	GetUserStatisticsFunc        func(userID uint) (map[string]int64, error)
+	GetUserEnhancedStatisticsFunc func(userID uint) (map[string]interface{}, error)
+	FindUserTasksWithPaginationFunc func(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error)
+	GetUserRecentActivityFunc    func(userID uint, hours int) (map[string]int64, error)
+	GetUserErrorBreakdownFunc    func(userID uint, limit int) ([]map[string]interface{}, error)
 }
 
 func (m *MockTaskAuditRepository) CreateTaskAudit(audit *database.TaskAudit) error {
@@ -123,6 +132,69 @@ func (m *MockTaskAuditRepository) UpdateTaskFailed(taskID uint, errorMsg string)
 func (m *MockTaskAuditRepository) GetTaskStatistics() (map[string]int64, error) {
 	if m.GetTaskStatisticsFunc != nil {
 		return m.GetTaskStatisticsFunc()
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) GetEnhancedStatistics() (map[string]interface{}, error) {
+	if m.GetEnhancedStatisticsFunc != nil {
+		return m.GetEnhancedStatisticsFunc()
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) FindTasksWithPagination(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	if m.FindTasksWithPaginationFunc != nil {
+		return m.FindTasksWithPaginationFunc(limit, offset, status)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockTaskAuditRepository) GetRecentActivity(hours int) (map[string]int64, error) {
+	if m.GetRecentActivityFunc != nil {
+		return m.GetRecentActivityFunc(hours)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) GetErrorBreakdown(limit int) ([]map[string]interface{}, error) {
+	if m.GetErrorBreakdownFunc != nil {
+		return m.GetErrorBreakdownFunc(limit)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) GetUserStatistics(userID uint) (map[string]int64, error) {
+	if m.GetUserStatisticsFunc != nil {
+		return m.GetUserStatisticsFunc(userID)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) GetUserEnhancedStatistics(userID uint) (map[string]interface{}, error) {
+	if m.GetUserEnhancedStatisticsFunc != nil {
+		return m.GetUserEnhancedStatisticsFunc(userID)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) FindUserTasksWithPagination(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	if m.FindUserTasksWithPaginationFunc != nil {
+		return m.FindUserTasksWithPaginationFunc(userID, limit, offset, status)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockTaskAuditRepository) GetUserRecentActivity(userID uint, hours int) (map[string]int64, error) {
+	if m.GetUserRecentActivityFunc != nil {
+		return m.GetUserRecentActivityFunc(userID, hours)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskAuditRepository) GetUserErrorBreakdown(userID uint, limit int) ([]map[string]interface{}, error) {
+	if m.GetUserErrorBreakdownFunc != nil {
+		return m.GetUserErrorBreakdownFunc(userID, limit)
 	}
 	return nil, nil
 }

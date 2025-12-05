@@ -21,6 +21,15 @@ type TaskAuditRepository interface {
 	ReclaimStaleTask(taskID uint, errorMsg string) error
 	UpdateTaskFailed(taskID uint, errorMsg string) error
 	GetTaskStatistics() (map[string]int64, error)
+	GetEnhancedStatistics() (map[string]interface{}, error)
+	FindTasksWithPagination(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error)
+	GetRecentActivity(hours int) (map[string]int64, error)
+	GetErrorBreakdown(limit int) ([]map[string]interface{}, error)
+	GetUserStatistics(userID uint) (map[string]int64, error)
+	GetUserEnhancedStatistics(userID uint) (map[string]interface{}, error)
+	FindUserTasksWithPagination(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error)
+	GetUserRecentActivity(userID uint, hours int) (map[string]int64, error)
+	GetUserErrorBreakdown(userID uint, limit int) ([]map[string]interface{}, error)
 }
 
 type taskAuditRepository struct{}
@@ -240,4 +249,357 @@ func (r *taskAuditRepository) GetTaskStatistics() (map[string]int64, error) {
 	stats["failed"] = count
 
 	return stats, nil
+}
+
+func (r *taskAuditRepository) GetEnhancedStatistics() (map[string]interface{}, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	stats := make(map[string]interface{})
+
+	basicStats, err := r.GetTaskStatistics()
+	if err != nil {
+		return nil, err
+	}
+	stats["counts"] = basicStats
+
+	var totalTasks int64
+	if err := database.DB.Model(&database.TaskAudit{}).Count(&totalTasks).Error; err != nil {
+		return nil, err
+	}
+	stats["total"] = totalTasks
+
+	var completedLastHour int64
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("status = ? AND completed_at > ?", database.TaskStatusCompleted, oneHourAgo).
+		Count(&completedLastHour).Error; err != nil {
+		return nil, err
+	}
+	stats["completed_last_hour"] = completedLastHour
+
+	var avgProcessingTime float64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("status = ? AND consumed_at IS NOT NULL AND completed_at IS NOT NULL", database.TaskStatusCompleted).
+		Select("AVG(TIMESTAMPDIFF(SECOND, consumed_at, completed_at))").
+		Scan(&avgProcessingTime).Error; err != nil {
+
+		avgProcessingTime = 0
+	}
+	stats["avg_processing_time_seconds"] = avgProcessingTime
+
+	var retriedTasks int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("retry_count > 0").
+		Count(&retriedTasks).Error; err != nil {
+		return nil, err
+	}
+	stats["retried_tasks"] = retriedTasks
+
+	var totalRetries int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Select("SUM(retry_count)").
+		Scan(&totalRetries).Error; err != nil {
+		totalRetries = 0
+	}
+	stats["total_retries"] = totalRetries
+
+	return stats, nil
+}
+
+func (r *taskAuditRepository) FindTasksWithPagination(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	if database.DB == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+
+	var audits []*database.TaskAudit
+	var total int64
+
+	query := database.DB.Model(&database.TaskAudit{}).Preload("Task").Preload("Task.Creator").Preload("Worker")
+
+	if status != nil {
+		query = query.Where("status = ?", *status)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if err := query.Order("published_at DESC").Limit(limit).Offset(offset).Find(&audits).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return audits, total, nil
+}
+
+func (r *taskAuditRepository) GetRecentActivity(hours int) (map[string]int64, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	activity := make(map[string]int64)
+	threshold := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	var published int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("published_at > ?", threshold).
+		Count(&published).Error; err != nil {
+		return nil, err
+	}
+	activity["published"] = published
+
+	var completed int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("status = ? AND completed_at > ?", database.TaskStatusCompleted, threshold).
+		Count(&completed).Error; err != nil {
+		return nil, err
+	}
+	activity["completed"] = completed
+
+	var failed int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Where("status = ? AND updated_at > ?", database.TaskStatusFailed, threshold).
+		Count(&failed).Error; err != nil {
+		return nil, err
+	}
+	activity["failed"] = failed
+
+	return activity, nil
+}
+
+func (r *taskAuditRepository) GetErrorBreakdown(limit int) ([]map[string]interface{}, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	var results []struct {
+		ErrorMsg string `gorm:"column:error_msg"`
+		Count    int64  `gorm:"column:count"`
+	}
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Select("error_msg, COUNT(*) as count").
+		Where("status = ? AND error_msg != ''", database.TaskStatusFailed).
+		Group("error_msg").
+		Order("count DESC").
+		Limit(limit).
+		Scan(&results).Error; err != nil {
+		return nil, err
+	}
+
+	breakdown := make([]map[string]interface{}, len(results))
+	for i, result := range results {
+		breakdown[i] = map[string]interface{}{
+			"error": result.ErrorMsg,
+			"count": result.Count,
+		}
+	}
+
+	return breakdown, nil
+}
+
+func (r *taskAuditRepository) GetUserStatistics(userID uint) (map[string]int64, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	stats := make(map[string]int64)
+
+	var count int64
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ?", userID, database.TaskStatusPending).
+		Count(&count).Error; err != nil {
+		return nil, err
+	}
+	stats["pending"] = count
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ?", userID, database.TaskStatusProcessing).
+		Count(&count).Error; err != nil {
+		return nil, err
+	}
+	stats["processing"] = count
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ?", userID, database.TaskStatusCompleted).
+		Count(&count).Error; err != nil {
+		return nil, err
+	}
+	stats["completed"] = count
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ?", userID, database.TaskStatusFailed).
+		Count(&count).Error; err != nil {
+		return nil, err
+	}
+	stats["failed"] = count
+
+	return stats, nil
+}
+
+func (r *taskAuditRepository) GetUserEnhancedStatistics(userID uint) (map[string]interface{}, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	stats := make(map[string]interface{})
+
+	basicStats, err := r.GetUserStatistics(userID)
+	if err != nil {
+		return nil, err
+	}
+	stats["counts"] = basicStats
+
+	var totalTasks int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ?", userID).
+		Count(&totalTasks).Error; err != nil {
+		return nil, err
+	}
+	stats["total"] = totalTasks
+
+	var completedLastHour int64
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ? AND task_audit.completed_at > ?", userID, database.TaskStatusCompleted, oneHourAgo).
+		Count(&completedLastHour).Error; err != nil {
+		return nil, err
+	}
+	stats["completed_last_hour"] = completedLastHour
+
+	var avgProcessingTime float64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ? AND task_audit.consumed_at IS NOT NULL AND task_audit.completed_at IS NOT NULL", userID, database.TaskStatusCompleted).
+		Select("AVG(TIMESTAMPDIFF(SECOND, task_audit.consumed_at, task_audit.completed_at))").
+		Scan(&avgProcessingTime).Error; err != nil {
+		avgProcessingTime = 0
+	}
+	stats["avg_processing_time_seconds"] = avgProcessingTime
+
+	var retriedTasks int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.retry_count > 0", userID).
+		Count(&retriedTasks).Error; err != nil {
+		return nil, err
+	}
+	stats["retried_tasks"] = retriedTasks
+
+	var totalRetries int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ?", userID).
+		Select("SUM(task_audit.retry_count)").
+		Scan(&totalRetries).Error; err != nil {
+		totalRetries = 0
+	}
+	stats["total_retries"] = totalRetries
+
+	return stats, nil
+}
+
+func (r *taskAuditRepository) FindUserTasksWithPagination(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	if database.DB == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+
+	var audits []*database.TaskAudit
+	var total int64
+
+	query := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ?", userID).
+		Preload("Task").Preload("Task.Creator").Preload("Worker")
+
+	if status != nil {
+		query = query.Where("task_audit.status = ?", *status)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if err := query.Order("task_audit.published_at DESC").Limit(limit).Offset(offset).Find(&audits).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return audits, total, nil
+}
+
+func (r *taskAuditRepository) GetUserRecentActivity(userID uint, hours int) (map[string]int64, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	activity := make(map[string]int64)
+	threshold := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	var published int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.published_at > ?", userID, threshold).
+		Count(&published).Error; err != nil {
+		return nil, err
+	}
+	activity["published"] = published
+
+	var completed int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ? AND task_audit.completed_at > ?", userID, database.TaskStatusCompleted, threshold).
+		Count(&completed).Error; err != nil {
+		return nil, err
+	}
+	activity["completed"] = completed
+
+	var failed int64
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Where("tasks.created_by = ? AND task_audit.status = ? AND task_audit.updated_at > ?", userID, database.TaskStatusFailed, threshold).
+		Count(&failed).Error; err != nil {
+		return nil, err
+	}
+	activity["failed"] = failed
+
+	return activity, nil
+}
+
+func (r *taskAuditRepository) GetUserErrorBreakdown(userID uint, limit int) ([]map[string]interface{}, error) {
+	if database.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	var results []struct {
+		ErrorMsg string `gorm:"column:error_msg"`
+		Count    int64  `gorm:"column:count"`
+	}
+
+	if err := database.DB.Model(&database.TaskAudit{}).
+		Joins("JOIN tasks ON task_audit.task_id = tasks.id").
+		Select("task_audit.error_msg, COUNT(*) as count").
+		Where("tasks.created_by = ? AND task_audit.status = ? AND task_audit.error_msg != ''", userID, database.TaskStatusFailed).
+		Group("task_audit.error_msg").
+		Order("count DESC").
+		Limit(limit).
+		Scan(&results).Error; err != nil {
+		return nil, err
+	}
+
+	breakdown := make([]map[string]interface{}, len(results))
+	for i, result := range results {
+		breakdown[i] = map[string]interface{}{
+			"error": result.ErrorMsg,
+			"count": result.Count,
+		}
+	}
+
+	return breakdown, nil
 }

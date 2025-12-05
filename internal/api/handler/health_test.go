@@ -48,6 +48,33 @@ func (m *MockTaskAuditRepositoryForHealth) ReclaimStaleTask(taskID uint, errorMs
 func (m *MockTaskAuditRepositoryForHealth) UpdateTaskFailed(taskID uint, errorMsg string) error {
 	return nil
 }
+func (m *MockTaskAuditRepositoryForHealth) GetEnhancedStatistics() (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) FindTasksWithPagination(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetRecentActivity(hours int) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetErrorBreakdown(limit int) ([]map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetUserStatistics(userID uint) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetUserEnhancedStatistics(userID uint) (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) FindUserTasksWithPagination(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetUserRecentActivity(userID uint, hours int) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForHealth) GetUserErrorBreakdown(userID uint, limit int) ([]map[string]interface{}, error) {
+	return nil, nil
+}
 
 func TestHealthHandler_GetHealth(t *testing.T) {
 	gin.SetMode(gin.TestMode)

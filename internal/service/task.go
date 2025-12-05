@@ -271,7 +271,7 @@ func (s *taskService) ConsumeResult(userID uint) (*dto.Result, error) {
 	}
 
 	if err := s.resultRepo.MarkResultAsConsumed(dbResult.ID); err != nil {
-		// Log error but don't fail - result was already returned
+
 		logrus.WithFields(logrus.Fields{
 			"result_id": dbResult.ID,
 			"error":     err.Error(),

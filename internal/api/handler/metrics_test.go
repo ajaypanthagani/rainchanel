@@ -48,6 +48,33 @@ func (m *MockTaskAuditRepositoryForMetrics) ReclaimStaleTask(taskID uint, errorM
 func (m *MockTaskAuditRepositoryForMetrics) UpdateTaskFailed(taskID uint, errorMsg string) error {
 	return nil
 }
+func (m *MockTaskAuditRepositoryForMetrics) GetEnhancedStatistics() (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) FindTasksWithPagination(limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetRecentActivity(hours int) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetErrorBreakdown(limit int) ([]map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetUserStatistics(userID uint) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetUserEnhancedStatistics(userID uint) (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) FindUserTasksWithPagination(userID uint, limit, offset int, status *database.TaskStatus) ([]*database.TaskAudit, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetUserRecentActivity(userID uint, hours int) (map[string]int64, error) {
+	return nil, nil
+}
+func (m *MockTaskAuditRepositoryForMetrics) GetUserErrorBreakdown(userID uint, limit int) ([]map[string]interface{}, error) {
+	return nil, nil
+}
 
 func TestMetricsHandler_GetMetrics(t *testing.T) {
 	gin.SetMode(gin.TestMode)

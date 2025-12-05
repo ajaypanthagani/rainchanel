@@ -11,10 +11,20 @@ A distributed task queue system for executing WebAssembly (WASM) modules.
 - MySQL database persistence
 - **Automatic task retries** with exponential backoff
 - **Stale task detection** and automatic reclaim
-- **Structured logging** (JSON or human-readable)
+- **Structured logging** (JSON or human-readable) using logrus
 - **Prometheus metrics** endpoint
 - **Health check** endpoint with queue statistics
 - **Database indexes** for optimal performance
+- **Web Dashboard** - Real-time monitoring interface with:
+  - **User-specific data** - Each user sees only their own tasks and statistics
+  - **Authentication required** - Login page with JWT token-based authentication
+  - Queue statistics and metrics (user-specific)
+  - Task throughput and processing times
+  - Error breakdown and analysis (user-specific)
+  - Task list with filtering and pagination (user-specific)
+  - System health status (global, visible to all)
+  - Auto-refresh every 5 seconds
+  - Logout functionality
 
 ## Prerequisites
 
@@ -65,6 +75,11 @@ The server will start on port 8080 by default.
 - `GET /health` - Health check endpoint with queue statistics
 - `GET /metrics` - Prometheus metrics endpoint
 - `GET /ping` - Simple ping endpoint
+- `GET /` - Web dashboard (HTML interface) - **Requires authentication**
+- `GET /login.html` - Login page for dashboard access
+- `GET /api/dashboard` - Enhanced dashboard statistics (JSON) - **Requires authentication, shows user-specific data**
+- `GET /api/tasks` - List tasks with pagination and filtering (query params: `limit`, `offset`, `status`) - **Requires authentication, shows only user's tasks**
+- `GET /api/tasks/:id` - Get detailed information about a specific task - **Requires authentication, only accessible if task belongs to user**
 
 ### Protected Endpoints (require JWT token in Authorization header)
 

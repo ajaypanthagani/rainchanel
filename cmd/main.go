@@ -19,7 +19,7 @@ import (
 )
 
 func startServer() {
-	// Initialize logrus
+
 	if os.Getenv("LOG_FORMAT") == "json" {
 		logrus.SetFormatter(&logrus.JSONFormatter{})
 	} else {
@@ -46,6 +46,7 @@ func startServer() {
 	authHandler := handler.NewAuthHandler(authService)
 	metricsHandler := handler.NewMetricsHandler()
 	healthHandler := handler.NewHealthHandler()
+	dashboardHandler := handler.NewDashboardHandler()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -54,11 +55,27 @@ func startServer() {
 
 	r := gin.Default()
 
+	r.Static("/static", "./web/static")
+	r.GET("/", func(ctx *gin.Context) {
+		ctx.File("./web/static/index.html")
+	})
+	r.GET("/login.html", func(ctx *gin.Context) {
+		ctx.File("./web/static/login.html")
+	})
+
 	r.GET("/ping", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 	r.GET("/health", healthHandler.GetHealth)
 	r.GET("/metrics", metricsHandler.GetMetrics)
+
+	dashboardAPI := r.Group("/api")
+	dashboardAPI.Use(middleware.AuthMiddleware())
+	{
+		dashboardAPI.GET("/dashboard", dashboardHandler.GetDashboard)
+		dashboardAPI.GET("/tasks", dashboardHandler.GetTasks)
+		dashboardAPI.GET("/tasks/:id", dashboardHandler.GetTaskDetail)
+	}
 
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
